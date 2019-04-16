@@ -2,6 +2,7 @@ package crw
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/sirupsen/logrus"
@@ -31,22 +32,26 @@ type (
 	}
 	//Cary comment and save it
 	Comment struct {
-		User      User
-		PostCount int
-		PostDate  string
-		Cmd       string
+		User      User   `json:"user"`
+		PostCount int    `json:"post_count"`
+		PostDate  string `json:"post_date"`
+		Cmd       string `json:"cmd"`
 	}
 	//User information who post this comment
 	User struct {
-		UserName    string
-		UserPage    string
-		Description string
-		JoinDate    string
+		UserName    string `json:"user_name"\`
+		UserPage    string `json:"user_page"`
+		Description string `json:"description"`
+		JoinDate    string `json:"join_date"`
+	}
+	CommenttoWrite struct {
+		cmd []Comment `json:"cmd"`
 	}
 )
 
 var (
-	mu = sync.Mutex{}
+	mu   = sync.Mutex{}
+	cmtw = CommenttoWrite{}
 )
 
 func Crawler(ctx context.Context, cf VozConfig) {
@@ -93,7 +98,7 @@ func Crawler(ctx context.Context, cf VozConfig) {
 		var cmdwg sync.WaitGroup
 		for j := 1; j <= cf.NumWorker; j++ {
 			cmdwg.Add(1)
-			go FinalStage(cmdwg, urlchanel, cmdchanel, cf)
+			go Save(j, cmdwg, urlchanel, cmdchanel, cf)
 		}
 		cmdwg.Wait()
 	}(ctx)
@@ -118,7 +123,7 @@ func PostCrawler(ctx context.Context, idx int, pg sync.WaitGroup, pagesin <-chan
 			return
 		case p, ok := <-pagesin:
 			if !ok {
-				fmt.Println("post crawler done")
+				logrus.Infof("post crawler done")
 				return
 			}
 			logrus.Infof("post crawler #%d : getting post from page %d", idx, p.PageNumber)
@@ -133,7 +138,7 @@ func PostCrawler(ctx context.Context, idx int, pg sync.WaitGroup, pagesin <-chan
 					PostDate:  date,
 					PostData:  data,
 				}
-				fmt.Println(out.PostCount)
+				postOut <- out
 			})
 			logrus.Infof("post crawler #%d : getting post from page %d done", idx, p.PageNumber)
 		}
@@ -175,6 +180,19 @@ func DataCrawler(url string, numpage int) PagesChanel {
 	page := PagesChanel{PageNumber: numpage, PageData: pageDoc}
 	return page
 }
+
+//func CheckResult(cmd chan Comment) {
+//	for {
+//		select {
+//		case c, ok := <-cmd:
+//			if !ok {
+//				logrus.Infof("done")
+//			}
+//			logrus.Info(c.PostCount)
+//			logrus.Infof("-------")
+//		}
+//	}
+//}
 func DataExtraction(ctx context.Context, wg sync.WaitGroup, idx int, posts <-chan PostsChanel, cmtout chan<- Comment, imageURl chan<- string) {
 	defer wg.Done()
 	for {
@@ -222,14 +240,18 @@ func DataExtraction(ctx context.Context, wg sync.WaitGroup, idx int, posts <-cha
 	}
 }
 
-func FinalStage(wg sync.WaitGroup, imgchanel chan string, cmdchan chan Comment, cf VozConfig) {
+func Save(idx int, wg sync.WaitGroup, imgchanel chan string, cmdchan chan Comment, cf VozConfig) {
 	defer wg.Done()
 	dir, _ := MakeDirFormTitle(cf.TheadUrl)
+	logrus.Infof("save %d runging ", idx)
 	client := http.Client{}
 	for {
 		select {
-		case url := <-imgchanel:
-			logrus.Infof(url)
+		case url, ok := <-imgchanel:
+			if !ok {
+				logrus.Infof("save done")
+			}
+			logrus.Infof("image form url : %s", url)
 			resp, err := client.Get(url)
 			if err != nil {
 				continue
@@ -240,8 +262,21 @@ func FinalStage(wg sync.WaitGroup, imgchanel chan string, cmdchan chan Comment, 
 			}
 			b, err := ioutil.ReadAll(resp.Body)
 			resp.Body.Close()
-			fp := filepath.Join(dir, "img")
+			fp := filepath.Join(dir, url[strings.LastIndex(url, "/")+1:])
 			err = ioutil.WriteFile(fp, b, 0644)
+			if err != nil {
+				continue
+			}
+		case cmd, ok := <-cmdchan:
+			if !ok {
+				logrus.Infof("save done")
+			}
+			mu.Lock()
+			cmtw := append(cmtw.cmd, cmd)
+			mu.Unlock()
+			j, _ := json.Marshal(cmtw)
+			fp := filepath.Join(dir, fmt.Sprintf("%scmd.json", dir))
+			err := ioutil.WriteFile(fp, j, 0644)
 			if err != nil {
 				continue
 			}
