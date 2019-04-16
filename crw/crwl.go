@@ -114,7 +114,6 @@ func Crawler(ctx context.Context, cf VozConfig) {
 }
 func PostCrawler(ctx context.Context, idx int, pg sync.WaitGroup, pagesin <-chan PagesChanel, postOut chan<- PostsChanel) {
 	defer pg.Done()
-
 	logrus.Infof("post crawler #%d : crawling post data ", idx)
 	for {
 		select {
@@ -205,7 +204,6 @@ func DataExtraction(ctx context.Context, wg sync.WaitGroup, idx int, posts <-cha
 				logrus.Infof("all crawler is done")
 				return
 			}
-			logrus.Infof("data extraction :crawl %d cmt at #%d", idx, post.PostCount)
 			postdata := post.PostData
 			usrif := postdata.First().Find("td.alt2").First().Find("a.bigusername")
 			userUrl, ok := usrif.Attr("href")
@@ -234,7 +232,6 @@ func DataExtraction(ctx context.Context, wg sync.WaitGroup, idx int, posts <-cha
 					}
 				}
 			})
-			logrus.Infof(" data extraction crawl cmt at #%d is done", post.PostCount)
 		}
 
 	}
@@ -243,7 +240,7 @@ func DataExtraction(ctx context.Context, wg sync.WaitGroup, idx int, posts <-cha
 func Save(idx int, wg sync.WaitGroup, imgchanel chan string, cmdchan chan Comment, cf VozConfig) {
 	defer wg.Done()
 	dir, _ := MakeDirFormTitle(cf.TheadUrl)
-	logrus.Infof("save %d runging ", idx)
+	logrus.Infof("save %d running ", idx)
 	client := http.Client{}
 	for {
 		select {
@@ -271,12 +268,9 @@ func Save(idx int, wg sync.WaitGroup, imgchanel chan string, cmdchan chan Commen
 			if !ok {
 				logrus.Infof("save done")
 			}
-			mu.Lock()
-			cmtw := append(cmtw.cmd, cmd)
-			mu.Unlock()
-			j, _ := json.Marshal(cmtw)
-			fp := filepath.Join(dir, fmt.Sprintf("%scmd.json", dir))
-			err := ioutil.WriteFile(fp, j, 0644)
+			j, _ := json.MarshalIndent(cmd, "", " ")
+			fp1 := filepath.Join(dir, fmt.Sprintf("%d-cmd.json", cmd.PostCount))
+			err := ioutil.WriteFile(fp1, j, 0644)
 			if err != nil {
 				continue
 			}

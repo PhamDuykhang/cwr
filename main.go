@@ -15,7 +15,7 @@ func main() {
 		return
 	}
 	cof := crw.VozConfig{
-		TheadUrl:    "https://forums.voz.vn/showthread.php?t=6044841",
+		TheadUrl:    "https://forums.voz.vn/showthread.php?t=7546216",
 		NumWorker:   3,
 		TimeToWrite: t,
 	}
