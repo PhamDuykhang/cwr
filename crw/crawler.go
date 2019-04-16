@@ -25,7 +25,7 @@ func CrawlerPageStage1(url string) {
 	page.Each(func(i int, s *goquery.Selection) {
 		postcount, ok := s.Find("a").First().Attr("name") //1
 		//get date form page
-		date := page.First().Find("td div.normal").Last().Text()
+		date := s.First().Find("td div.normal").Last().Text()
 		if ok {
 			fmt.Println(postcount) //1
 		}
@@ -40,9 +40,18 @@ func CrawlerPageStage1(url string) {
 
 		fmt.Println(username)
 		//get role Junior Member
-		role := page.First().Find("td.alt2").First().Find("div.smallfont").First().Text()
+		role := s.First().Find("td.alt2").First().Find("div.smallfont").First().Text()
 		fmt.Println(role)
-		fmt.Println(s.Find("div.voz-post-message").Text())
+		cmds := s.Find("div.voz-post-message")
+		jo := s.Find("td.alt2 table tbody tr td").Last().Find("div.smallfont").Find("div").First().Text()
+		fmt.Println(strings.Trim(jo, ("Join Date: ")))
+		fmt.Println(strings.TrimSpace(cmds.Text()))
+		cmds.Find("img ").Each(func(i int, alink *goquery.Selection) {
+			url, ok := alink.Attr("src")
+			if ok {
+				fmt.Println(url)
+			}
+		})
 		fmt.Println("---------------")
 
 	})
