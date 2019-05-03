@@ -108,7 +108,7 @@ func ExtractDetailNonChan(filmIn []Film) []Film {
 			key := strings.TrimRight(item.Find("h4.inline").Text(), ":")
 			value := []string{}
 			item.Find("a").Each(func(j int, values *goquery.Selection) {
-				if !strings.HasPrefix(values.Text(), "See full cast") && !strings.HasPrefix(values.Text(), "1 more credit ") {
+				if !strings.HasPrefix(values.Text(), "See full cast") && !strings.HasPrefix(values.Text(), "1 more credit ") && !strings.HasPrefix(values.Text(), "1 more credit") {
 					value = append(value, values.Text())
 				}
 			})
