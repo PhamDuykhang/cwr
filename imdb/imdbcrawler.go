@@ -1,9 +1,9 @@
 package imdb
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/globalsign/mgo"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +12,7 @@ import (
 
 type (
 	Film struct {
-		ID          int                 `json:"id" bson:"_id"`
+		ID          string              `json:"id" bson:"_id"`
 		Rank        int                 `json:"rank" bson:"rank"`
 		URL         string              `json:"url" bson:"url"`
 		Title       string              `json:"title" bson:"title"`
@@ -24,23 +24,33 @@ type (
 )
 
 func Crawler() {
-	films := MakeURLTopRateNonChan()
-	ll := ExtractDetailNonChan(films)
+	filmIn := make(chan Film, 20)
+	filmOut := make(chan Film, 20)
+	go func() {
+		var wg sync.WaitGroup
+		for i := 1; i <= 20; i++ {
+			fmt.Printf("%d", i)
+			wg.Add(1)
+			go ExtractDetail(i, wg, filmIn, filmOut)
+		}
+		wg.Wait()
+	}()
+	go func() {
+		SaveData(filmOut)
+	}()
+	fmt.Println("star crawling ")
+	MakeURLTopRate(filmIn)
+	close(filmIn)
 
-	jstring, err := json.MarshalIndent(ll, "", " ")
+}
+func MakeURLTopRate(filmURLChan chan Film) {
+	topURL := "https://www.imdb.com/chart/top?ref_=nv_mv_250"
+	fmt.Println("make url")
+	doc, err := GetDocFormURL(topURL)
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Printf("%s\n", jstring)
-
-}
-func MakeURLTopRate(cfg IMDBConf, filmURLChan chan Film) {
-	topURL := "https://www.imdb.com/chart/top?ref_=nv_mv_250"
-	doc, err := GetDocFormURL(topURL)
-	if err != nil {
-		return
-	}
-	doc.Find("table.chart full-width").Find("tbody.lister-list").Find("tr").Each(func(rank int, films *goquery.Selection) {
+	doc.Find("table.chart").Find("tbody.lister-list").Find("tr").Each(func(rank int, films *goquery.Selection) {
 		f := Film{}
 		f.Rank = rank + 1
 		filmURL, ok := films.Find("td.titleColumn").Find("a").Attr("href")
@@ -53,11 +63,13 @@ func MakeURLTopRate(cfg IMDBConf, filmURLChan chan Film) {
 		rawRelease = strings.TrimRight(rawRelease, ")")
 		releaseDate, err := strconv.Atoi(rawRelease)
 		if err != nil {
+			fmt.Println(err)
 			f.ReleaseDate = 0
 		} else {
 			f.ReleaseDate = releaseDate
 		}
 		f.Rate = films.Find("td.imdbRating").Find("strong").Text()
+		f.ID = NewUUID()
 		filmURLChan <- f
 	})
 
@@ -70,7 +82,7 @@ func MakeURLTopRateNonChan() []Film {
 		fmt.Println(err)
 	}
 	filmURLChan := []Film{}
-	doc.Find("table.chart.full-width").Find("tbody.lister-list").Find("tr").Each(func(rank int, films *goquery.Selection) {
+	doc.Find("table.chart").Find("tbody.lister-list").Find("tr").Each(func(rank int, films *goquery.Selection) {
 		f := Film{}
 		f.Rank = rank + 1
 		filmURL, ok := films.Find("td.titleColumn").Find("a").Attr("href")
@@ -121,32 +133,36 @@ func ExtractDetailNonChan(filmIn []Film) []Film {
 	}
 	return listReturn
 }
-func ExtractDetail(wg sync.WaitGroup, fimIn chan Film, filmOut chan Film) {
+func ExtractDetail(idx int, wg sync.WaitGroup, fimIn chan Film, filmOut chan Film) {
 	defer wg.Done()
 	for {
 		select {
 		case film, ok := <-fimIn:
 			if !ok {
+				fmt.Printf("cawler #%d done", idx)
 				return
 			}
+			fmt.Printf("cawler #%d crawing", idx)
 			newFilm := film
 			filmDoc, err := GetDocFormURL(newFilm.URL)
+			fmt.Printf("url film : %s\n", newFilm.URL)
 			if err != nil {
 				return
 			}
-			newFilm.Description = strings.TrimSpace(filmDoc.Find("div.plot_summary").Find("div.summary_text").Text())
+			film.Description = strings.TrimSpace(filmDoc.Find("div.plot_summary").Find("div.summary_text").Text())
 			m := make(map[string][]string)
 			filmDoc.Find("div.plot_summary").Find("div.credit_summary_item").Each(func(i int, item *goquery.Selection) {
 				key := strings.TrimRight(item.Find("h4.inline").Text(), ":")
 				value := []string{}
-				item.Find("a").Each(func(i int, values *goquery.Selection) {
-					value = append(value, values.Text())
+				item.Find("a").Each(func(j int, values *goquery.Selection) {
+					if !strings.HasPrefix(values.Text(), "See full cast") && !strings.HasSuffix(values.Text(), "credits ") && !strings.HasPrefix(values.Text(), "1 more credit") {
+						value = append(value, values.Text())
+					}
 				})
 				m[key] = value
-
 			})
-			newFilm.Credit = m
-			filmOut <- newFilm
+			film.Credit = m
+			filmOut <- film
 		}
 	}
 }
@@ -167,9 +183,30 @@ func GetDocFormURL(url string) (*goquery.Document, error) {
 		return nil, err
 	}
 	doc, err := goquery.NewDocumentFromReader(body.Body)
+	body.Body.Close()
 	if err != nil {
 		return nil, err
 	}
 	return doc, nil
+}
+func SaveData(in chan Film) {
+	session, err := mgo.Dial("127.0.0.1:27017")
+	session.SetMode(mgo.Monotonic, true)
+	s := session.Clone()
+	if err != nil {
+		panic(err)
+	}
 
+	for {
+		select {
+		case listFilms, ok := <-in:
+			if !ok {
+				fmt.Println("done")
+			}
+			err = s.DB("imdbfilms").C("movie").Insert(listFilms)
+			if err != nil {
+				fmt.Println(err)
+			}
+		}
+	}
 }

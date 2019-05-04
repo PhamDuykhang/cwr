@@ -30,3 +30,21 @@ func TestExtractDetailNonChan(t *testing.T) {
 	}
 	fmt.Printf("%s\n", jstring)
 }
+func TestGetDocFormURL(t *testing.T) {
+	doc, err := GetDocFormURL("https://www.imdb.com/chart/top?ref_=nv_mv_250")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(doc)
+}
+func TestMakeURLTopRate(t *testing.T) {
+	in := make(chan Film)
+
+	go MakeURLTopRate(in)
+	for {
+		select {
+		case t := <-in:
+			fmt.Println(t)
+		}
+	}
+}
